@@ -1,32 +1,21 @@
-// ✅ /api/slack.js – Slack bot handler with persistent fallback for missing threadMap
+// ✅ /api/slack.js – Slack bot handler with Upstash Redis integration
 import { buffer } from "micro";
 import { WebClient } from "@slack/web-api";
-import fs from "fs";
-import path from "path";
 import { analyzeMessage } from "../ai/analyzeMessage.js";
 import { createTask, completeTask } from "../monday/index.js";
+import { Redis } from "@upstash/redis";
 
-const slackMap = JSON.parse(fs.readFileSync(path.resolve("slackMap.json"), "utf8"));
+const redis = new Redis({
+  url: process.env.KV_REST_API_URL,
+  token: process.env.KV_REST_API_TOKEN,
+});
+
+const slackMap = {
+  // napln si vlastné mapovanie Slack ID -> Monday meno
+  // "U123ABC": "marian.z@firma.com",
+};
+
 const slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
-const threadMapFile = path.resolve(".threadMap.json");
-let threadMap = {};
-
-// Load persisted threadMap if available
-if (fs.existsSync(threadMapFile)) {
-  try {
-    threadMap = JSON.parse(fs.readFileSync(threadMapFile, "utf8"));
-  } catch (e) {
-    console.error("❌ Failed to load threadMap file", e);
-  }
-}
-
-function persistThreadMap() {
-  try {
-    fs.writeFileSync(threadMapFile, JSON.stringify(threadMap, null, 2));
-  } catch (e) {
-    console.error("❌ Failed to persist threadMap", e);
-  }
-}
 
 export const config = {
   api: {
@@ -56,14 +45,9 @@ export default async function handler(req, res) {
   // 🖼️ Handle image in thread
   if (thread_ts && files?.length) {
     const validFile = files.find(f => /\.(png|jpe?g)$/i.test(f.name));
-
-    console.log("🧵 thread_ts:", thread_ts);
-    console.log("🗂 files:", files);
-    console.log("🧠 threadMap[thread_ts]:", threadMap[thread_ts]);
-    console.log("👤 Slack user:", user);
-
     if (validFile) {
-      if (!threadMap[thread_ts]) {
+      const taskRecord = await redis.get(thread_ts);
+      if (!taskRecord) {
         await slackClient.chat.postMessage({
           channel,
           thread_ts,
@@ -72,26 +56,18 @@ export default async function handler(req, res) {
         return res.status(200).send("No threadMap");
       }
 
-      const { taskId, createdAt } = threadMap[thread_ts];
+      const { taskId, createdAt } = taskRecord;
       const mondayUser = slackMap[user] || null;
-
-      if (!mondayUser) {
-        console.warn("⚠️ No mapping for Slack user:", user);
-        await completeTask(taskId, null, validFile.created, createdAt);
-        return res.status(200).send("Marked done without assignee");
-      }
-
       await completeTask(taskId, mondayUser, validFile.created, createdAt);
-      return res.status(200).send("Marked done with assignee");
+      return res.status(200).send("Marked done");
     }
-    return res.status(200).send("Thread image ignored or invalid");
+    return res.status(200).send("Ignored file");
   }
 
   // 🧠 Analyze message
   const result = await analyzeMessage(text);
   if (!result.isTask) return res.status(200).send("Not a task");
 
-  // ✅ Try to react 🤖, skip if already exists
   try {
     await slackClient.reactions.add({
       name: "robot_face",
@@ -108,17 +84,15 @@ export default async function handler(req, res) {
 
   const slackLink = `https://slack.com/app_redirect?channel=${channel}&message_ts=${ts}`;
   const task = await createTask(result.summary, user, slackLink);
-
   if (!task || !task.id) {
     console.error("❌ Task creation failed:", task);
     return res.status(500).send("Failed to create Monday task");
   }
 
-  threadMap[ts] = {
+  await redis.set(ts, {
     taskId: task.id,
     createdAt: new Date().toISOString(),
-  };
-  persistThreadMap();
+  });
 
   await slackClient.chat.postMessage({
     channel,
