@@ -1,3 +1,4 @@
+// ✅ Slack bot handler for Vercel with fallback when designer is not mapped
 import { buffer } from "micro";
 import { WebClient } from "@slack/web-api";
 import fs from "fs";
@@ -27,27 +28,37 @@ export default async function handler(req, res) {
     return res.status(200).send(payload.challenge);
   }
 
-const event = payload.event;
-if (!event || event.subtype === "bot_message" || event.bot_id || event.user === process.env.BOT_USER_ID) {
-  return res.status(200).send("Ignore bot/self messages");
-}
+  const event = payload.event;
+  if (!event || event.subtype === "bot_message" || event.bot_id || event.user === process.env.BOT_USER_ID) {
+    return res.status(200).send("Ignore bot/self messages");
+  }
+
   const { text, ts, user, thread_ts, channel, files } = event;
 
+  // 🖼️ Handle image in thread
   if (thread_ts && files?.length) {
     const validFile = files.find(f => /\.(png|jpe?g)$/i.test(f.name));
     if (validFile && threadMap[thread_ts]) {
       const { taskId, createdAt } = threadMap[thread_ts];
       const mondayUser = slackMap[user] || null;
-      if (!mondayUser) return res.status(200).send("No mapping");
+
+      if (!mondayUser) {
+        console.warn("⚠️ No mapping for Slack user:", user);
+        await completeTask(taskId, null, validFile.created, createdAt);
+        return res.status(200).send("Marked done without assignee");
+      }
 
       await completeTask(taskId, mondayUser, validFile.created, createdAt);
+      return res.status(200).send("Marked done with assignee");
     }
-    return res.status(200).send("Handled image");
+    return res.status(200).send("Thread image ignored or no task found");
   }
 
+  // 🧠 Analyze message
   const result = await analyzeMessage(text);
   if (!result.isTask) return res.status(200).send("Not a task");
 
+  // ✅ Try to react 🤖, skip if already exists
   try {
     await slackClient.reactions.add({
       name: "robot_face",

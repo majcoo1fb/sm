@@ -33,16 +33,21 @@ export async function completeTask(taskId, designerId, timestamp, createdAt) {
   const finishDate = new Date(timestamp * 1000).toISOString().split("T")[0];
   const gapText = `${Math.round((timestamp * 1000 - new Date(createdAt).getTime()) / 3600000)}h`;
 
+  const columnValues = {
+    status: { label: "Done" },
+    date_mkt86fjx: { date: finishDate },
+    text_mkt8zwjz: gapText
+  };
+
+  if (designerId) {
+    columnValues.multiple_person_mkt82xp7 = {
+      personsAndTeams: [{ id: designerId, kind: "person" }]
+    };
+  }
+
   const query = `
     mutation {
-      change_multiple_column_values(item_id: ${taskId}, board_id: ${process.env.MONDAY_BOARD_ID}, column_values: "${JSON.stringify({
-        status: { label: "Done" },
-        date_mkt86fjx: { date: finishDate },
-        text_mkt8zwjz: gapText,
-        multiple_person_mkt82xp7: {
-          personsAndTeams: [{ id: designerId, kind: "person" }]
-        }
-      }).replace(/"/g, '\\"')}")
+      change_multiple_column_values(item_id: ${taskId}, board_id: ${process.env.MONDAY_BOARD_ID}, column_values: "${JSON.stringify(columnValues).replace(/"/g, '\\"')}")
       { id }
     }
   `;
