@@ -1,14 +1,23 @@
 import axios from "axios";
 
+// ✅ Vytvorenie tasku pri novej Slack správe
 export async function createTask(summary, slackUser, slackLink) {
+  const columnValues = {
+    text_mkt8cqag: slackUser,                         // Author (text)
+    status: { label: "Working on it" },               // Status
+    date4: { date: new Date().toISOString().split("T")[0] }, // Create Date
+    // Slack link môžeš pridať ak máš link column
+  };
+
   const query = `
     mutation {
-      create_item(board_id: ${process.env.MONDAY_BOARD_ID}, item_name: "${summary}", column_values: "${JSON.stringify({
-        text_mkt8cqag: slackUser,
-        status: { label: "Working on it" },
-        date4: { date: new Date().toISOString().split("T")[0] }
-      }).replace(/"/g, '\\"')}")
-      { id }
+      create_item(
+        board_id: ${process.env.MONDAY_BOARD_ID},
+        item_name: "${summary}",
+        column_values: "${JSON.stringify(columnValues).replace(/"/g, '\\"')}"
+      ) {
+        id
+      }
     }
   `;
 
@@ -29,26 +38,27 @@ export async function createTask(summary, slackUser, slackLink) {
   }
 }
 
-export async function completeTask(taskId, designerId, timestamp, createdAt) {
+// ✅ Označenie tasku ako dokončeného po doručení obrázka
+export async function completeTask(taskId, slackUserId, timestamp, createdAt) {
   const finishDate = new Date(timestamp * 1000).toISOString().split("T")[0];
-  const gapText = `${Math.round((timestamp * 1000 - new Date(createdAt).getTime()) / 3600000)}h`;
+  const gapSeconds = Math.floor((timestamp * 1000 - new Date(createdAt).getTime()) / 1000);
 
   const columnValues = {
-    status: { label: "Done" },
-    date_mkt86fjx: { date: finishDate },
-    text_mkt8zwjz: gapText
+    status: { label: "Done" },                        // Status na Done
+    date_mkt86fjx: { date: finishDate },              // Finish Date
+    duration_mkt8v8yq: { duration: gapSeconds },      // Gap v sekundách
+    text_mkt8jq0t: String(slackUserId),               // Designer (ako text)
   };
-
-  if (designerId) {
-    columnValues.multiple_person_mkt82xp7 = {
-      personsAndTeams: [{ id: designerId, kind: "person" }]
-    };
-  }
 
   const query = `
     mutation {
-      change_multiple_column_values(item_id: ${taskId}, board_id: ${process.env.MONDAY_BOARD_ID}, column_values: "${JSON.stringify(columnValues).replace(/"/g, '\\"')}")
-      { id }
+      change_multiple_column_values(
+        item_id: ${taskId},
+        board_id: ${process.env.MONDAY_BOARD_ID},
+        column_values: "${JSON.stringify(columnValues).replace(/"/g, '\\"')}"
+      ) {
+        id
+      }
     }
   `;
 
