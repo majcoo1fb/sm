@@ -11,7 +11,7 @@ const redis = new Redis({
 });
 
 const slackMap = {
-  // example: "U04ABC123": "designer@email.com"
+  // example: "U04ABC123": "marian.z@firma.com"
 };
 
 const slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
@@ -56,12 +56,12 @@ export default async function handler(req, res) {
       }
 
       const { taskId, createdAt } = taskRecord;
-      const designerEmail = slackMap[user] || null;
-      if (!designerEmail) {
+      const mondayUserEmail = slackMap[user] || null;
+      if (!mondayUserEmail) {
         await slackClient.chat.postMessage({
           channel,
           thread_ts,
-          text: `⚠️ No mapping found for <@${user}>. Skipping assignment.`,
+          text: `⚠️ No Monday mapping found for <@${user}>. Skipping assignment.`,
         });
         return res.status(200).send("No Monday mapping");
       }
@@ -78,7 +78,7 @@ export default async function handler(req, res) {
         text: `✅ Assigned <@${user}> as the task owner.`,
       });
 
-      await completeTask(taskId, designerEmail, validFile.created, createdAt);
+      await completeTask(taskId, mondayUserEmail, validFile.created, createdAt);
       return res.status(200).send("Marked done");
     }
     return res.status(200).send("Ignored file");
@@ -102,13 +102,8 @@ export default async function handler(req, res) {
     }
   }
 
-  let authorName = user;
-  try {
-    const userInfo = await slackClient.users.info({ user });
-    authorName = userInfo.user?.real_name || userInfo.user?.name || user;
-  } catch (err) {
-    console.warn("⚠️ Could not fetch user info:", err);
-  }
+  const userInfo = await slackClient.users.info({ user });
+  const authorName = userInfo.user?.real_name || userInfo.user?.name || user;
 
   const slackLink = `https://slack.com/app_redirect?channel=${channel}&message_ts=${ts}`;
   const task = await createTask({
