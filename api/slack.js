@@ -42,7 +42,7 @@ export default async function handler(req, res) {
 
   const { text, ts, user, thread_ts, channel, files } = event;
 
-  // 🖼️ Handle image in thread
+ // 🖼️ Handle image in thread
 if (thread_ts && files?.length) {
   const validFile = files.find(f => /\.(png|jpe?g)$/i.test(f.name));
   if (validFile) {
@@ -57,10 +57,10 @@ if (thread_ts && files?.length) {
     }
 
     const { taskId, createdAt } = taskRecord;
-    const mondayUserId = slackMap[user];
+    const mondayUserName = slackMap[user] || "missing";
 
     // ✅ Update task in Monday
-    await completeTask(taskId, mondayUserId, validFile.created, createdAt);
+    await completeTask(taskId, mondayUserName, validFile.created, createdAt);
 
     // ✅ Add ✅ emoji
     try {
@@ -76,6 +76,23 @@ if (thread_ts && files?.length) {
         console.error("❌ Failed to add checkmark reaction:", err);
       }
     }
+
+    // ✅ Notify in thread
+    const designerMsg = mondayUserName === "missing"
+      ? `⚠️ Designer not mapped for <@${user}> – saved as *missing*.`
+      : `✅ Designer assigned: *${mondayUserName}*`;
+
+    await slackClient.chat.postMessage({
+      channel,
+      thread_ts,
+      text: `${designerMsg}\nTask marked as done.`,
+    });
+
+    return res.status(200).send("Marked done");
+  }
+
+  return res.status(200).send("Ignored file");
+}
 
     // ✅ Send confirmation to thread
     await slackClient.chat.postMessage({

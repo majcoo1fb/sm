@@ -1,12 +1,11 @@
 import axios from "axios";
 
-// ✅ Vytvorenie tasku pri novej Slack správe
+// ✅ Vytvorenie tasku pri Slack správe
 export async function createTask(summary, slackUser, slackLink) {
   const columnValues = {
-    text_mkt8cqag: slackUser,                         // Author (text)
-    status: { label: "Working on it" },               // Status
+    text_mkt8cqag: slackUser, // Author (text)
+    status: { label: "Working on it" },
     date4: { date: new Date().toISOString().split("T")[0] }, // Create Date
-    // Slack link môžeš pridať ak máš link column
   };
 
   const query = `
@@ -30,31 +29,40 @@ export async function createTask(summary, slackUser, slackLink) {
     });
 
     const data = res.data?.data?.create_item;
-    if (!data) console.error("❌ Monday API response:", res.data);
+    if (!data) {
+      console.error("❌ Monday API error (createTask):", JSON.stringify(res.data, null, 2));
+    } else {
+      console.log("✅ Task created:", data);
+    }
     return data;
   } catch (err) {
-    console.error("❌ Error while creating task:", err.response?.data || err.message);
+    console.error("❌ Axios error (createTask):", err.response?.data || err.message);
     return null;
   }
 }
 
-// ✅ Označenie tasku ako dokončeného po doručení obrázka
+// ✅ Dokončenie tasku po dodaní obrázka
 export async function completeTask(taskId, slackUserId, timestamp, createdAt) {
+  if (!taskId || !timestamp || !createdAt) {
+    console.error("❌ Missing arguments in completeTask");
+    return;
+  }
+
   const finishDate = new Date(timestamp * 1000).toISOString().split("T")[0];
   const gapSeconds = Math.floor((timestamp * 1000 - new Date(createdAt).getTime()) / 1000);
 
   const columnValues = {
-    status: { label: "Done" },                        // Status na Done
-    date_mkt86fjx: { date: finishDate },              // Finish Date
-    duration_mkt8v8yq: { duration: gapSeconds },      // Gap v sekundách
-    text_mkt8jq0t: String(slackUserId),               // Designer (ako text)
+    status: { label: "Done" },
+    date_mkt86fjx: { date: finishDate },
+    duration_mkt8v8yq: { duration: gapSeconds },
+    text_mkt8jq0t: String(slackUserId), // Designer as text
   };
 
   const query = `
     mutation {
       change_multiple_column_values(
-        item_id: ${taskId},
         board_id: ${process.env.MONDAY_BOARD_ID},
+        item_id: ${taskId},
         column_values: "${JSON.stringify(columnValues).replace(/"/g, '\\"')}"
       ) {
         id
@@ -62,14 +70,23 @@ export async function completeTask(taskId, slackUserId, timestamp, createdAt) {
     }
   `;
 
+  console.log("📤 Sending completeTask query to Monday...");
+  console.log("🧾 Query:", query);
+
   try {
-    await axios.post("https://api.monday.com/v2", { query }, {
+    const res = await axios.post("https://api.monday.com/v2", { query }, {
       headers: {
         Authorization: process.env.MONDAY_API_KEY,
         "Content-Type": "application/json",
       },
     });
+
+    if (res.data.errors) {
+      console.error("❌ Monday API error (completeTask):", JSON.stringify(res.data.errors, null, 2));
+    } else {
+      console.log("✅ Task updated successfully:", res.data.data.change_multiple_column_values);
+    }
   } catch (err) {
-    console.error("❌ Error while completing task:", err.response?.data || err.message);
+    console.error("❌ Axios error (completeTask):", err.response?.data || err.message);
   }
 }
