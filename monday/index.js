@@ -1,9 +1,9 @@
 import axios from "axios";
 
 // ✅ Vytvorenie tasku
-export async function createTask(summary, slackUser, slackLink) {
+export async function createTask(summary, slackDisplayName, slackLink) {
   const columnValues = {
-    text_mkt8cqag: slackUser, // Author (text)
+    text_mkt8cqag: slackDisplayName, // Author ako Slack meno (text)
     status: { label: "Working on it" },
     date4: { date: new Date().toISOString().split("T")[0] },
   };
@@ -41,7 +41,7 @@ export async function createTask(summary, slackUser, slackLink) {
   }
 }
 
-// ✅ Dokončenie tasku bez time tracking
+// ✅ Dokončenie tasku
 export async function completeTask(taskId, slackUserName, timestamp, createdAt) {
   if (!taskId || !timestamp || !createdAt) {
     console.error("❌ Missing required parameters in completeTask()");

@@ -59,10 +59,8 @@ export default async function handler(req, res) {
       const { taskId, createdAt } = taskRecord;
       const mondayUserName = slackMap[user] || "missing";
 
-      // ✅ Update Monday task
       await completeTask(taskId, mondayUserName, validFile.created, createdAt);
 
-      // ✅ Add ✅ emoji
       try {
         await slackClient.reactions.add({
           name: "white_check_mark",
@@ -77,7 +75,6 @@ export default async function handler(req, res) {
         }
       }
 
-      // ✅ Notify in thread
       const designerMsg = mondayUserName === "missing"
         ? `⚠️ Designer not mapped for <@${user}> – saved as *missing*.`
         : `✅ Designer assigned: *${mondayUserName}*`;
@@ -98,7 +95,6 @@ export default async function handler(req, res) {
   const result = await analyzeMessage(text);
   if (!result.isTask) return res.status(200).send("Not a task");
 
-  // 🤖 Add robot_face reaction
   try {
     await slackClient.reactions.add({
       name: "robot_face",
@@ -113,16 +109,23 @@ export default async function handler(req, res) {
     }
   }
 
-  // ✅ Create Monday task
+  // 👤 Získaj meno používateľa
+  let slackDisplayName = user;
+  try {
+    const userInfo = await slackClient.users.info({ user });
+    slackDisplayName = userInfo.user?.profile?.real_name || userInfo.user?.name || user;
+  } catch (err) {
+    console.warn("⚠️ Failed to fetch Slack username, using fallback ID");
+  }
+
   const slackLink = `https://slack.com/app_redirect?channel=${channel}&message_ts=${ts}`;
-  const task = await createTask(result.summary, user, slackLink);
+  const task = await createTask(result.summary, slackDisplayName, slackLink);
 
   if (!task || !task.id) {
     console.error("❌ Task creation failed:", task);
     return res.status(500).send("Failed to create Monday task");
   }
 
-  // 💾 Save Slack ts → taskId mapping
   await redis.set(ts, {
     taskId: task.id,
     createdAt: new Date().toISOString(),
@@ -131,7 +134,7 @@ export default async function handler(req, res) {
   await slackClient.chat.postMessage({
     channel,
     thread_ts: ts,
-    text: `✅ Task created!\nDrop your PNG/JPG here when ready.`,
+    text: `✅ Task created!\n🎨 *Design Summary:* _${result.summary}_\nDrop your PNG/JPG here when ready.`,
   });
 
   res.status(200).send("Task created");
