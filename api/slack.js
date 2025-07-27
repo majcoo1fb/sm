@@ -27,11 +27,10 @@ export default async function handler(req, res) {
     return res.status(200).send(payload.challenge);
   }
 
-  const event = payload.event;
-  if (!event || event.subtype === "bot_message") {
-    return res.status(200).send("Ignore bot messages");
-  }
-
+const event = payload.event;
+if (!event || event.subtype === "bot_message" || event.bot_id || event.user === process.env.BOT_USER_ID) {
+  return res.status(200).send("Ignore bot/self messages");
+}
   const { text, ts, user, thread_ts, channel, files } = event;
 
   if (thread_ts && files?.length) {
