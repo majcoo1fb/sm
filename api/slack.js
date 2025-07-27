@@ -4,12 +4,6 @@ import { analyzeMessage } from "../ai/analyzeMessage.js";
 import { createTask, completeTask } from "../monday/index.js";
 import { Redis } from "@upstash/redis";
 
-// 👇 SlackMap: Slack ID → Designer meno (text)
-const slackMap = {
-  "U092HTKKG10": "Marian Z.",
-  // doplň ďalších podľa potreby
-};
-
 const redis = new Redis({
   url: process.env.KV_REST_API_URL,
   token: process.env.KV_REST_API_TOKEN,
@@ -42,7 +36,16 @@ export default async function handler(req, res) {
 
   const { text, ts, user, thread_ts, channel, files } = event;
 
-  // 🖼️ Handle image uploaded in thread
+  // 👤 Fetch Slack display name (pre Author a Designer)
+  let slackDisplayName = user;
+  try {
+    const userInfo = await slackClient.users.info({ user });
+    slackDisplayName = userInfo.user?.profile?.real_name || userInfo.user?.name || user;
+  } catch (err) {
+    console.warn("⚠️ Failed to fetch Slack display name, using fallback ID");
+  }
+
+  // 🖼️ Handle image in thread
   if (thread_ts && files?.length) {
     const validFile = files.find(f => /\.(png|jpe?g)$/i.test(f.name));
     if (validFile) {
@@ -57,9 +60,9 @@ export default async function handler(req, res) {
       }
 
       const { taskId, createdAt } = taskRecord;
-      const mondayUserName = slackMap[user] || "missing";
 
-      await completeTask(taskId, mondayUserName, validFile.created, createdAt);
+      // ✅ Update task with designer = Slack meno
+      await completeTask(taskId, slackDisplayName, validFile.created, createdAt);
 
       try {
         await slackClient.reactions.add({
@@ -75,14 +78,10 @@ export default async function handler(req, res) {
         }
       }
 
-      const designerMsg = mondayUserName === "missing"
-        ? `⚠️ Designer not mapped for <@${user}> – saved as *missing*.`
-        : `✅ Designer assigned: *${mondayUserName}*`;
-
       await slackClient.chat.postMessage({
         channel,
         thread_ts,
-        text: `${designerMsg}\nTask marked as done.`,
+        text: `✅ Designer assigned: *${slackDisplayName}*\nTask marked as done.`,
       });
 
       return res.status(200).send("Marked done");
@@ -107,15 +106,6 @@ export default async function handler(req, res) {
     } else {
       console.error("❌ Failed to add robot reaction:", err);
     }
-  }
-
-  // 👤 Získaj meno používateľa
-  let slackDisplayName = user;
-  try {
-    const userInfo = await slackClient.users.info({ user });
-    slackDisplayName = userInfo.user?.profile?.real_name || userInfo.user?.name || user;
-  } catch (err) {
-    console.warn("⚠️ Failed to fetch Slack username, using fallback ID");
   }
 
   const slackLink = `https://slack.com/app_redirect?channel=${channel}&message_ts=${ts}`;
