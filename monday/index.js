@@ -4,10 +4,9 @@ export async function createTask(summary, slackUser, slackLink) {
   const query = `
     mutation {
       create_item(board_id: ${process.env.MONDAY_BOARD_ID}, item_name: "${summary}", column_values: "${JSON.stringify({
-        text: slackUser,
-        long_text: { text: summary },
-        link: { url: slackLink, text: "Slack message" },
-        status: { label: "Open" }
+        text_mkt8cqag: slackUser,
+        status: { label: "Working on it" },
+        date4: { date: new Date().toISOString().split("T")[0] }
       }).replace(/"/g, '\\"')}")
       { id }
     }
@@ -30,15 +29,19 @@ export async function createTask(summary, slackUser, slackLink) {
   }
 }
 
-export async function completeTask(taskId, designer, timestamp, createdAt) {
-  const duration = Math.round((timestamp * 1000 - new Date(createdAt).getTime()) / 1000);
+export async function completeTask(taskId, designerId, timestamp, createdAt) {
+  const finishDate = new Date(timestamp * 1000).toISOString().split("T")[0];
+  const gapText = `${Math.round((timestamp * 1000 - new Date(createdAt).getTime()) / 3600000)}h`;
+
   const query = `
     mutation {
       change_multiple_column_values(item_id: ${taskId}, board_id: ${process.env.MONDAY_BOARD_ID}, column_values: "${JSON.stringify({
-        person: { personsAndTeams: [{ id: designer, kind: "person" }] },
         status: { label: "Done" },
-        date4: { date: new Date(timestamp * 1000).toISOString().split("T")[0] },
-        numbers: duration
+        date_mkt86fjx: { date: finishDate },
+        text_mkt8zwjz: gapText,
+        multiple_person_mkt82xp7: {
+          personsAndTeams: [{ id: designerId, kind: "person" }]
+        }
       }).replace(/"/g, '\\"')}")
       { id }
     }

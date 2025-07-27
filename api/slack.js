@@ -1,4 +1,3 @@
-// ✅ /api/slack.js – Slack bot handler for Vercel with Monday + OpenAI integration
 import { buffer } from "micro";
 import { WebClient } from "@slack/web-api";
 import fs from "fs";
@@ -24,7 +23,6 @@ export default async function handler(req, res) {
   const rawBody = (await buffer(req)).toString();
   const payload = JSON.parse(rawBody);
 
-  // ✅ Handle Slack URL verification
   if (payload.type === "url_verification") {
     return res.status(200).send(payload.challenge);
   }
@@ -36,7 +34,6 @@ export default async function handler(req, res) {
 
   const { text, ts, user, thread_ts, channel, files } = event;
 
-  // 🖼️ Handle image in thread
   if (thread_ts && files?.length) {
     const validFile = files.find(f => /\.(png|jpe?g)$/i.test(f.name));
     if (validFile && threadMap[thread_ts]) {
@@ -49,11 +46,9 @@ export default async function handler(req, res) {
     return res.status(200).send("Handled image");
   }
 
-  // 🧠 Analyze message
   const result = await analyzeMessage(text);
   if (!result.isTask) return res.status(200).send("Not a task");
 
-  // ✅ Try to react 🤖, skip if already exists
   try {
     await slackClient.reactions.add({
       name: "robot_face",

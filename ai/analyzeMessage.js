@@ -4,13 +4,13 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export async function analyzeMessage(text) {
   const prompt = `
-You're an AI assistant classifying Slack messages. Is this message a task?
+You're an assistant determining if a Slack message is a design task.
 
 Message: "${text}"
 
-Respond in JSON:
+Reply in JSON:
 { "isTask": true|false, "summary": "..." }
-  `;
+`;
 
   const res = await openai.chat.completions.create({
     model: "gpt-4",
