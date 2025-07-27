@@ -1,4 +1,4 @@
-// ✅ Slack bot handler for Vercel with fallback when designer is not mapped
+// ✅ /api/slack.js – Slack bot handler with persistent fallback for missing threadMap
 import { buffer } from "micro";
 import { WebClient } from "@slack/web-api";
 import fs from "fs";
@@ -8,7 +8,25 @@ import { createTask, completeTask } from "../monday/index.js";
 
 const slackMap = JSON.parse(fs.readFileSync(path.resolve("slackMap.json"), "utf8"));
 const slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
-const threadMap = {};
+const threadMapFile = path.resolve(".threadMap.json");
+let threadMap = {};
+
+// Load persisted threadMap if available
+if (fs.existsSync(threadMapFile)) {
+  try {
+    threadMap = JSON.parse(fs.readFileSync(threadMapFile, "utf8"));
+  } catch (e) {
+    console.error("❌ Failed to load threadMap file", e);
+  }
+}
+
+function persistThreadMap() {
+  try {
+    fs.writeFileSync(threadMapFile, JSON.stringify(threadMap, null, 2));
+  } catch (e) {
+    console.error("❌ Failed to persist threadMap", e);
+  }
+}
 
 export const config = {
   api: {
@@ -38,7 +56,22 @@ export default async function handler(req, res) {
   // 🖼️ Handle image in thread
   if (thread_ts && files?.length) {
     const validFile = files.find(f => /\.(png|jpe?g)$/i.test(f.name));
-    if (validFile && threadMap[thread_ts]) {
+
+    console.log("🧵 thread_ts:", thread_ts);
+    console.log("🗂 files:", files);
+    console.log("🧠 threadMap[thread_ts]:", threadMap[thread_ts]);
+    console.log("👤 Slack user:", user);
+
+    if (validFile) {
+      if (!threadMap[thread_ts]) {
+        await slackClient.chat.postMessage({
+          channel,
+          thread_ts,
+          text: `⚠️ Could not find matching task for this thread.`,
+        });
+        return res.status(200).send("No threadMap");
+      }
+
       const { taskId, createdAt } = threadMap[thread_ts];
       const mondayUser = slackMap[user] || null;
 
@@ -51,7 +84,7 @@ export default async function handler(req, res) {
       await completeTask(taskId, mondayUser, validFile.created, createdAt);
       return res.status(200).send("Marked done with assignee");
     }
-    return res.status(200).send("Thread image ignored or no task found");
+    return res.status(200).send("Thread image ignored or invalid");
   }
 
   // 🧠 Analyze message
@@ -85,6 +118,7 @@ export default async function handler(req, res) {
     taskId: task.id,
     createdAt: new Date().toISOString(),
   };
+  persistThreadMap();
 
   await slackClient.chat.postMessage({
     channel,
