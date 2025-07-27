@@ -2,7 +2,11 @@ import { buffer } from "micro";
 import { WebClient } from "@slack/web-api";
 import { analyzeMessage } from "../ai/analyzeMessage.js";
 import { createTask, completeTask } from "../monday/index.js";
-import slackMap from "../slackMap.json" assert { type: "json" };
+import fs from "fs";
+import path from "path";
+
+const slackMap = JSON.parse(fs.readFileSync(path.resolve("slackMap.json"), "utf8"));
+
 
 export const config = {
   api: {
