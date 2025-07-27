@@ -43,26 +43,52 @@ export default async function handler(req, res) {
   const { text, ts, user, thread_ts, channel, files } = event;
 
   // 🖼️ Handle image in thread
-  if (thread_ts && files?.length) {
-    const validFile = files.find(f => /\.(png|jpe?g)$/i.test(f.name));
-    if (validFile) {
-      const taskRecord = await redis.get(thread_ts);
-      if (!taskRecord) {
-        await slackClient.chat.postMessage({
-          channel,
-          thread_ts,
-          text: `⚠️ Could not find matching task for this thread.`,
-        });
-        return res.status(200).send("No threadMap");
-      }
-
-      const { taskId, createdAt } = taskRecord;
-      const mondayUser = slackMap[user] || null;
-      await completeTask(taskId, mondayUser, validFile.created, createdAt);
-      return res.status(200).send("Marked done");
+if (thread_ts && files?.length) {
+  const validFile = files.find(f => /\.(png|jpe?g)$/i.test(f.name));
+  if (validFile) {
+    const taskRecord = await redis.get(thread_ts);
+    if (!taskRecord) {
+      await slackClient.chat.postMessage({
+        channel,
+        thread_ts,
+        text: `⚠️ Could not find matching task for this thread.`,
+      });
+      return res.status(200).send("No threadMap");
     }
-    return res.status(200).send("Ignored file");
+
+    const { taskId, createdAt } = taskRecord;
+    const mondayUserId = slackMap[user];
+
+    // ✅ Update task in Monday
+    await completeTask(taskId, mondayUserId, validFile.created, createdAt);
+
+    // ✅ Add ✅ emoji
+    try {
+      await slackClient.reactions.add({
+        name: "white_check_mark",
+        channel,
+        timestamp: thread_ts,
+      });
+    } catch (err) {
+      if (err.code === "slack_webapi_platform_error" && err.data?.error === "already_reacted") {
+        console.log("✅ Already reacted, skipping...");
+      } else {
+        console.error("❌ Failed to add checkmark reaction:", err);
+      }
+    }
+
+    // ✅ Send confirmation to thread
+    await slackClient.chat.postMessage({
+      channel,
+      thread_ts,
+      text: `✅ Designer assigned and task marked as done!`,
+    });
+
+    return res.status(200).send("Marked done");
   }
+  return res.status(200).send("Ignored file");
+}
+
 
   // 🧠 Analyze message
   const result = await analyzeMessage(text);
