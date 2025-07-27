@@ -1,4 +1,4 @@
-// ✅ /api/slack.js – Slack bot handler with Upstash Redis integration
+// ✅ /api/slack.js – Slack bot handler with Upstash Redis, Monday, Slack reactions, assignment, and time tracking
 import { buffer } from "micro";
 import { WebClient } from "@slack/web-api";
 import { analyzeMessage } from "../ai/analyzeMessage.js";
@@ -11,8 +11,7 @@ const redis = new Redis({
 });
 
 const slackMap = {
-  // napln si vlastné mapovanie Slack ID -> Monday meno
-  // "U123ABC": "marian.z@firma.com",
+  // example: "U04ABC123": "designer@email.com"
 };
 
 const slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
@@ -42,7 +41,7 @@ export default async function handler(req, res) {
 
   const { text, ts, user, thread_ts, channel, files } = event;
 
-  // 🖼️ Handle image in thread
+  // 🖼️ Handle image in thread (delivery)
   if (thread_ts && files?.length) {
     const validFile = files.find(f => /\.(png|jpe?g)$/i.test(f.name));
     if (validFile) {
@@ -57,8 +56,29 @@ export default async function handler(req, res) {
       }
 
       const { taskId, createdAt } = taskRecord;
-      const mondayUser = slackMap[user] || null;
-      await completeTask(taskId, mondayUser, validFile.created, createdAt);
+      const designerEmail = slackMap[user] || null;
+      if (!designerEmail) {
+        await slackClient.chat.postMessage({
+          channel,
+          thread_ts,
+          text: `⚠️ No mapping found for <@${user}>. Skipping assignment.`,
+        });
+        return res.status(200).send("No Monday mapping");
+      }
+
+      await slackClient.reactions.add({
+        name: "white_check_mark",
+        channel,
+        timestamp: event.ts,
+      });
+
+      await slackClient.chat.postMessage({
+        channel,
+        thread_ts,
+        text: `✅ Assigned <@${user}> as the task owner.`,
+      });
+
+      await completeTask(taskId, designerEmail, validFile.created, createdAt);
       return res.status(200).send("Marked done");
     }
     return res.status(200).send("Ignored file");
@@ -82,8 +102,22 @@ export default async function handler(req, res) {
     }
   }
 
+  let authorName = user;
+  try {
+    const userInfo = await slackClient.users.info({ user });
+    authorName = userInfo.user?.real_name || userInfo.user?.name || user;
+  } catch (err) {
+    console.warn("⚠️ Could not fetch user info:", err);
+  }
+
   const slackLink = `https://slack.com/app_redirect?channel=${channel}&message_ts=${ts}`;
-  const task = await createTask(result.summary, user, slackLink);
+  const task = await createTask({
+    summary: result.summary,
+    author: authorName,
+    slackLink,
+    timeTracking: true,
+  });
+
   if (!task || !task.id) {
     console.error("❌ Task creation failed:", task);
     return res.status(500).send("Failed to create Monday task");
@@ -97,7 +131,9 @@ export default async function handler(req, res) {
   await slackClient.chat.postMessage({
     channel,
     thread_ts: ts,
-    text: `✅ Task created!\nDrop your PNG/JPG here when ready.`,
+    text: `✅ Task created!
+📝 *Summary for designer:* ${result.summary}
+📎 Drop your PNG/JPG here when ready.`,
   });
 
   res.status(200).send("Task created");
