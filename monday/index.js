@@ -6,21 +6,28 @@ export async function createTask(summary, slackUser, slackLink) {
       create_item(board_id: ${process.env.MONDAY_BOARD_ID}, item_name: "${summary}", column_values: "${JSON.stringify({
         text: slackUser,
         long_text: { text: summary },
-        link: { url: slackLink, text: "Slack link" },
+        link: { url: slackLink, text: "Slack message" },
         status: { label: "Open" }
       }).replace(/"/g, '\\"')}")
       { id }
     }
   `;
 
-  const res = await axios.post("https://api.monday.com/v2", { query }, {
-    headers: {
-      Authorization: process.env.MONDAY_API_KEY,
-      "Content-Type": "application/json",
-    },
-  });
+  try {
+    const res = await axios.post("https://api.monday.com/v2", { query }, {
+      headers: {
+        Authorization: process.env.MONDAY_API_KEY,
+        "Content-Type": "application/json",
+      },
+    });
 
-  return res.data.data.create_item;
+    const data = res.data?.data?.create_item;
+    if (!data) console.error("❌ Monday API response:", res.data);
+    return data;
+  } catch (err) {
+    console.error("❌ Error while creating task:", err.response?.data || err.message);
+    return null;
+  }
 }
 
 export async function completeTask(taskId, designer, timestamp, createdAt) {
@@ -37,10 +44,14 @@ export async function completeTask(taskId, designer, timestamp, createdAt) {
     }
   `;
 
-  await axios.post("https://api.monday.com/v2", { query }, {
-    headers: {
-      Authorization: process.env.MONDAY_API_KEY,
-      "Content-Type": "application/json",
-    },
-  });
+  try {
+    await axios.post("https://api.monday.com/v2", { query }, {
+      headers: {
+        Authorization: process.env.MONDAY_API_KEY,
+        "Content-Type": "application/json",
+      },
+    });
+  } catch (err) {
+    console.error("❌ Error while completing task:", err.response?.data || err.message);
+  }
 }

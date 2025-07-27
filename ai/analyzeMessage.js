@@ -4,7 +4,7 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export async function analyzeMessage(text) {
   const prompt = `
-Decide if this Slack message is a task. If yes, give a short summary.
+You're an AI assistant classifying Slack messages. Is this message a task?
 
 Message: "${text}"
 

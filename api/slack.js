@@ -1,3 +1,4 @@
+// ✅ /api/slack.js – Slack bot handler for Vercel with Monday + OpenAI integration
 import { buffer } from "micro";
 import { WebClient } from "@slack/web-api";
 import fs from "fs";
@@ -7,7 +8,7 @@ import { createTask, completeTask } from "../monday/index.js";
 
 const slackMap = JSON.parse(fs.readFileSync(path.resolve("slackMap.json"), "utf8"));
 const slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
-const threadMap = {}; // cache for thread ↔ taskId
+const threadMap = {};
 
 export const config = {
   api: {
@@ -23,7 +24,7 @@ export default async function handler(req, res) {
   const rawBody = (await buffer(req)).toString();
   const payload = JSON.parse(rawBody);
 
-  // ✅ Handle Slack URL verification challenge
+  // ✅ Handle Slack URL verification
   if (payload.type === "url_verification") {
     return res.status(200).send(payload.challenge);
   }
@@ -35,7 +36,7 @@ export default async function handler(req, res) {
 
   const { text, ts, user, thread_ts, channel, files } = event;
 
-  // 🖼️ Handle image upload in thread
+  // 🖼️ Handle image in thread
   if (thread_ts && files?.length) {
     const validFile = files.find(f => /\.(png|jpe?g)$/i.test(f.name));
     if (validFile && threadMap[thread_ts]) {
@@ -48,26 +49,32 @@ export default async function handler(req, res) {
     return res.status(200).send("Handled image");
   }
 
-  // 🧠 Analyze message content
+  // 🧠 Analyze message
   const result = await analyzeMessage(text);
   if (!result.isTask) return res.status(200).send("Not a task");
 
- try {
-  await slackClient.reactions.add({
-    name: "robot_face",
-    channel,
-    timestamp: ts,
-  });
-} catch (err) {
-  if (err.code === "slack_webapi_platform_error" && err.data?.error === "already_reacted") {
-    console.log("🤖 Already reacted, skipping...");
-  } else {
-    console.error("❌ Failed to add reaction:", err);
+  // ✅ Try to react 🤖, skip if already exists
+  try {
+    await slackClient.reactions.add({
+      name: "robot_face",
+      channel,
+      timestamp: ts,
+    });
+  } catch (err) {
+    if (err.code === "slack_webapi_platform_error" && err.data?.error === "already_reacted") {
+      console.log("🤖 Already reacted, skipping...");
+    } else {
+      console.error("❌ Failed to add reaction:", err);
+    }
   }
-}
 
   const slackLink = `https://slack.com/app_redirect?channel=${channel}&message_ts=${ts}`;
   const task = await createTask(result.summary, user, slackLink);
+
+  if (!task || !task.id) {
+    console.error("❌ Task creation failed:", task);
+    return res.status(500).send("Failed to create Monday task");
+  }
 
   threadMap[ts] = {
     taskId: task.id,
