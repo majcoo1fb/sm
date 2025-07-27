@@ -1,21 +1,19 @@
 import { buffer } from "micro";
 import { WebClient } from "@slack/web-api";
-import { analyzeMessage } from "../ai/analyzeMessage.js";
-import { createTask, completeTask } from "../monday/index.js";
 import fs from "fs";
 import path from "path";
+import { analyzeMessage } from "../ai/analyzeMessage.js";
+import { createTask, completeTask } from "../monday/index.js";
 
 const slackMap = JSON.parse(fs.readFileSync(path.resolve("slackMap.json"), "utf8"));
-
+const slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
+const threadMap = {}; // cache for thread ↔ taskId
 
 export const config = {
   api: {
     bodyParser: false,
   },
 };
-
-const slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
-const threadMap = {}; // temporary in-memory map
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -24,13 +22,20 @@ export default async function handler(req, res) {
 
   const rawBody = (await buffer(req)).toString();
   const payload = JSON.parse(rawBody);
-  const event = payload.event;
 
-  if (!event || event.subtype === "bot_message") return res.status(200).send("Ignore");
+  // ✅ Handle Slack URL verification challenge
+  if (payload.type === "url_verification") {
+    return res.status(200).send(payload.challenge);
+  }
+
+  const event = payload.event;
+  if (!event || event.subtype === "bot_message") {
+    return res.status(200).send("Ignore bot messages");
+  }
 
   const { text, ts, user, thread_ts, channel, files } = event;
 
-  // 🎯 Image in thread
+  // 🖼️ Handle image upload in thread
   if (thread_ts && files?.length) {
     const validFile = files.find(f => /\.(png|jpe?g)$/i.test(f.name));
     if (validFile && threadMap[thread_ts]) {
@@ -43,7 +48,7 @@ export default async function handler(req, res) {
     return res.status(200).send("Handled image");
   }
 
-  // 📥 Analyze new message
+  // 🧠 Analyze message content
   const result = await analyzeMessage(text);
   if (!result.isTask) return res.status(200).send("Not a task");
 
