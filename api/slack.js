@@ -1,24 +1,32 @@
+import { buffer } from "micro";
 import { WebClient } from "@slack/web-api";
-import { analyzeMessage } from "../../ai/analyzeMessage";
-import { createTask, completeTask } from "../../monday";
-import slackMap from "../../slackMap.json";
+import { analyzeMessage } from "../ai/analyzeMessage.js";
+import { createTask, completeTask } from "../monday/index.js";
+import slackMap from "../slackMap.json" assert { type: "json" };
+
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
 
 const slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
-const threadMap = {};
+const threadMap = {}; // temporary in-memory map
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const payload = req.body?.event;
-  if (!payload || payload.type !== "message" || payload.subtype === "bot_message") {
-    return res.status(200).send("Ignoring");
-  }
+  const rawBody = (await buffer(req)).toString();
+  const payload = JSON.parse(rawBody);
+  const event = payload.event;
 
-  const { text, ts, user, thread_ts, channel, files } = payload;
+  if (!event || event.subtype === "bot_message") return res.status(200).send("Ignore");
 
-  // Handle file upload in thread
+  const { text, ts, user, thread_ts, channel, files } = event;
+
+  // 🎯 Image in thread
   if (thread_ts && files?.length) {
     const validFile = files.find(f => /\.(png|jpe?g)$/i.test(f.name));
     if (validFile && threadMap[thread_ts]) {
@@ -28,10 +36,10 @@ export default async function handler(req, res) {
 
       await completeTask(taskId, mondayUser, validFile.created, createdAt);
     }
-    return res.status(200).send("File handled");
+    return res.status(200).send("Handled image");
   }
 
-  // Analyze new message
+  // 📥 Analyze new message
   const result = await analyzeMessage(text);
   if (!result.isTask) return res.status(200).send("Not a task");
 
@@ -55,5 +63,5 @@ export default async function handler(req, res) {
     text: `✅ Task created!\nDrop your PNG/JPG here when ready.`,
   });
 
-  return res.status(200).send("Task created");
+  res.status(200).send("Task created");
 }

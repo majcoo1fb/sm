@@ -6,8 +6,8 @@ export async function createTask(summary, slackUser, slackLink) {
       create_item(board_id: ${process.env.MONDAY_BOARD_ID}, item_name: "${summary}", column_values: "${JSON.stringify({
         text: slackUser,
         long_text: { text: summary },
-        link: { url: slackLink, text: "View in Slack" },
-        status: { label: "Open" },
+        link: { url: slackLink, text: "Slack link" },
+        status: { label: "Open" }
       }).replace(/"/g, '\\"')}")
       { id }
     }

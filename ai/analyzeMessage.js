@@ -1,10 +1,10 @@
-import { OpenAI } from "openai";
+import OpenAI from "openai";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export async function analyzeMessage(text) {
   const prompt = `
-Decide if this message is a task request. If yes, summarize it.
+Decide if this Slack message is a task. If yes, give a short summary.
 
 Message: "${text}"
 

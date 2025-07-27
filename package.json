@@ -8,8 +8,10 @@
   "dependencies": {
     "@slack/web-api": "^6.9.0",
     "axios": "^1.6.0",
+    "micro": "^9.3.4",
     "openai": "^4.26.0"
   },
+  "type": "module",
   "engines": {
     "node": ">=18"
   }
