@@ -52,11 +52,19 @@ export default async function handler(req, res) {
   const result = await analyzeMessage(text);
   if (!result.isTask) return res.status(200).send("Not a task");
 
+ try {
   await slackClient.reactions.add({
     name: "robot_face",
     channel,
     timestamp: ts,
   });
+} catch (err) {
+  if (err.code === "slack_webapi_platform_error" && err.data?.error === "already_reacted") {
+    console.log("🤖 Already reacted, skipping...");
+  } else {
+    console.error("❌ Failed to add reaction:", err);
+  }
+}
 
   const slackLink = `https://slack.com/app_redirect?channel=${channel}&message_ts=${ts}`;
   const task = await createTask(result.summary, user, slackLink);
