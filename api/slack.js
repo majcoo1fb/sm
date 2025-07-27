@@ -1,15 +1,21 @@
-// ✅ /api/slack.js – Slack bot handler for Vercel with Monday + OpenAI integration + Upstash
+// ✅ /api/slack.js – Slack bot handler with Upstash Redis integration
 import { buffer } from "micro";
 import { WebClient } from "@slack/web-api";
-import fs from "fs";
-import path from "path";
 import { analyzeMessage } from "../ai/analyzeMessage.js";
 import { createTask, completeTask } from "../monday/index.js";
 import { Redis } from "@upstash/redis";
 
-const slackMap = JSON.parse(fs.readFileSync(path.resolve("slackMap.json"), "utf8"));
+const redis = new Redis({
+  url: process.env.KV_REST_API_URL,
+  token: process.env.KV_REST_API_TOKEN,
+});
+
+const slackMap = {
+  // napln si vlastné mapovanie Slack ID -> Monday meno
+  // "U123ABC": "marian.z@firma.com",
+};
+
 const slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
-const redis = Redis.fromEnv();
 
 export const config = {
   api: {
@@ -25,14 +31,13 @@ export default async function handler(req, res) {
   const rawBody = (await buffer(req)).toString();
   const payload = JSON.parse(rawBody);
 
-  // ✅ Handle Slack URL verification
   if (payload.type === "url_verification") {
     return res.status(200).send(payload.challenge);
   }
 
   const event = payload.event;
-  if (!event || event.subtype === "bot_message") {
-    return res.status(200).send("Ignore bot messages");
+  if (!event || event.subtype === "bot_message" || event.bot_id || event.user === process.env.BOT_USER_ID) {
+    return res.status(200).send("Ignore bot/self messages");
   }
 
   const { text, ts, user, thread_ts, channel, files } = event;
@@ -41,50 +46,28 @@ export default async function handler(req, res) {
   if (thread_ts && files?.length) {
     const validFile = files.find(f => /\.(png|jpe?g)$/i.test(f.name));
     if (validFile) {
-      const threadData = await redis.get(thread_ts);
-      if (!threadData) {
+      const taskRecord = await redis.get(thread_ts);
+      if (!taskRecord) {
         await slackClient.chat.postMessage({
           channel,
           thread_ts,
-          text: `:warning: Could not find matching task for this thread.`
+          text: `⚠️ Could not find matching task for this thread.`,
         });
-        return res.status(200).send("No matching task");
+        return res.status(200).send("No threadMap");
       }
 
-      const { taskId, createdAt } = threadData;
-      const designerEmail = slackMap[user] || null;
-      if (!designerEmail) {
-        await slackClient.chat.postMessage({
-          channel,
-          thread_ts,
-          text: `:warning: No Monday mapping found for <@${user}>. Skipping assignment.`
-        });
-        return res.status(200).send("No mapping");
-      }
-
-      await completeTask(taskId, designerEmail, validFile.created, createdAt);
-
-      await slackClient.reactions.add({
-        name: "white_check_mark",
-        channel,
-        timestamp: ts,
-      });
-
-      await slackClient.chat.postMessage({
-        channel,
-        thread_ts,
-        text: `✅ Assigned <@${user}> as task owner.`,
-      });
-
-      return res.status(200).send("Handled image upload");
+      const { taskId, createdAt } = taskRecord;
+      const mondayUser = slackMap[user] || null;
+      await completeTask(taskId, mondayUser, validFile.created, createdAt);
+      return res.status(200).send("Marked done");
     }
+    return res.status(200).send("Ignored file");
   }
 
   // 🧠 Analyze message
   const result = await analyzeMessage(text);
   if (!result.isTask) return res.status(200).send("Not a task");
 
-  // ✅ Add 🤖 reaction
   try {
     await slackClient.reactions.add({
       name: "robot_face",
@@ -99,18 +82,8 @@ export default async function handler(req, res) {
     }
   }
 
-  // 🔍 Get author name from Slack profile
-  let authorName = user;
-  try {
-    const userInfo = await slackClient.users.info({ user });
-    authorName = userInfo.user?.real_name || userInfo.user?.name || user;
-  } catch (err) {
-    console.warn("⚠️ Could not fetch user info:", err);
-  }
-
   const slackLink = `https://slack.com/app_redirect?channel=${channel}&message_ts=${ts}`;
-  const task = await createTask({ summary: result.summary, author: authorName, slackLink });
-
+  const task = await createTask(result.summary, user, slackLink);
   if (!task || !task.id) {
     console.error("❌ Task creation failed:", task);
     return res.status(500).send("Failed to create Monday task");
@@ -124,9 +97,7 @@ export default async function handler(req, res) {
   await slackClient.chat.postMessage({
     channel,
     thread_ts: ts,
-    text: `✅ Task created!
-📝 Summary: ${result.summary}
-Drop your PNG/JPG here when ready.`,
+    text: `✅ Task created!\nDrop your PNG/JPG here when ready.`,
   });
 
   res.status(200).send("Task created");
