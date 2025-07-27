@@ -41,7 +41,7 @@ export async function createTask(summary, slackUser, slackLink) {
   }
 }
 
-// ✅ Dokončenie tasku
+// ✅ Dokončenie tasku bez time tracking
 export async function completeTask(taskId, slackUserName, timestamp, createdAt) {
   if (!taskId || !timestamp || !createdAt) {
     console.error("❌ Missing required parameters in completeTask()");
@@ -49,12 +49,10 @@ export async function completeTask(taskId, slackUserName, timestamp, createdAt) 
   }
 
   const finishDate = new Date(timestamp * 1000).toISOString().split("T")[0];
-  const gapSeconds = Math.floor((timestamp * 1000 - new Date(createdAt).getTime()) / 1000);
 
   const columnValues = {
     status: { label: "Done" },
     date_mkt86fjx: { date: finishDate },
-    duration_mkt8v8yq: { duration: gapSeconds },
     text_mkt8jq0t: String(slackUserName || "missing"),
   };
 
@@ -70,9 +68,7 @@ export async function completeTask(taskId, slackUserName, timestamp, createdAt) 
     }
   `;
 
-  // 🧾 Debug log
-  console.log("📤 Monday Query:");
-  console.log(query);
+  console.log("📤 Monday Query:\n", query);
 
   try {
     const res = await axios.post("https://api.monday.com/v2", { query }, {
@@ -82,8 +78,7 @@ export async function completeTask(taskId, slackUserName, timestamp, createdAt) 
       },
     });
 
-    console.log("📦 Monday Response:");
-    console.log(JSON.stringify(res.data, null, 2));
+    console.log("📦 Monday Response:\n", JSON.stringify(res.data, null, 2));
 
     if (res.data.errors) {
       console.error("❌ GraphQL Errors:", res.data.errors);
@@ -91,6 +86,6 @@ export async function completeTask(taskId, slackUserName, timestamp, createdAt) 
       console.log("✅ Task updated successfully:", res.data.data.change_multiple_column_values);
     }
   } catch (err) {
-    console.error("❌ Error while completing task:", err.response?.data || err.message);
+    console.error("❌ Axios Error:", err.response?.data || err.message);
   }
 }
