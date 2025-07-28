@@ -36,7 +36,16 @@ export default async function handler(req, res) {
 
   const { text, ts, user, thread_ts, channel, files } = event;
 
-  // 👤 Fetch Slack display name (pre Author a Designer)
+  // 🛡️ Anti-duplicate protection
+  const eventKey = `event:${ts}`;
+  const alreadyHandled = await redis.get(eventKey);
+  if (alreadyHandled) {
+    console.log("⚠️ Duplicate event detected, skipping.");
+    return res.status(200).send("Duplicate event");
+  }
+  await redis.set(eventKey, "1", { ex: 60 });
+
+  // 👤 Fetch Slack display name
   let slackDisplayName = user;
   try {
     const userInfo = await slackClient.users.info({ user });
@@ -61,7 +70,6 @@ export default async function handler(req, res) {
 
       const { taskId, createdAt } = taskRecord;
 
-      // ✅ Update task with designer = Slack meno
       await completeTask(taskId, slackDisplayName, validFile.created, createdAt);
 
       try {
@@ -90,7 +98,7 @@ export default async function handler(req, res) {
     return res.status(200).send("Ignored non-image file");
   }
 
-  // 🧠 Analyze if message is a task
+  // 🧠 Analyze message
   const result = await analyzeMessage(text);
   if (!result.isTask) return res.status(200).send("Not a task");
 
@@ -124,7 +132,10 @@ export default async function handler(req, res) {
   await slackClient.chat.postMessage({
     channel,
     thread_ts: ts,
-    text: `✅ Task created! @sbdesigners please work on them ASAP\n🎨 *Design Summary:* _${result.summary}_\nDrop your PNG/JPG here when ready.`,
+    text: `✅ Task created!
+🎨 *Design Summary:* _${result.summary}_
+<@sbdesigners>, please take a look.
+Drop your PNG/JPG here when ready.`,
   });
 
   res.status(200).send("Task created");
