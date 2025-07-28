@@ -229,7 +229,7 @@ export default async function handler(req, res) {
     thread_ts: ts,
     text: `✅ Task created!
 🎨 *Design Summary:* _${result.summary}_
-@sbdesigners , please take a look.
+<!subteam^S097MQET8HH> , please take a look.
 Drop your PNG/JPG here when ready.`,
   });
 
