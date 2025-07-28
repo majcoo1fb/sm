@@ -1,21 +1,44 @@
 import { buffer } from "micro";
+import crypto from "crypto";
 import { WebClient } from "@slack/web-api";
 import { analyzeMessage } from "../ai/analyzeMessage.js";
 import { createTask, completeTask } from "../monday/index.js";
 import { Redis } from "@upstash/redis";
 
+// Redis pre anti-duplicate ochranu
 const redis = new Redis({
   url: process.env.KV_REST_API_URL,
   token: process.env.KV_REST_API_TOKEN,
 });
 
+// Slack client
 const slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
 
+// Zakáže bodyParser (aby sme mali raw body)
 export const config = {
   api: {
     bodyParser: false,
   },
 };
+
+// Verifikácia Slack podpisu
+function verifySlackSignature(req, rawBody) {
+  const slackSignature = req.headers["x-slack-signature"];
+  const slackTimestamp = req.headers["x-slack-request-timestamp"];
+
+  if (!slackSignature || !slackTimestamp) return false;
+
+  const fiveMinutesAgo = Math.floor(Date.now() / 1000) - 60 * 5;
+  if (slackTimestamp < fiveMinutesAgo) return false;
+
+  const sigBase = `v0:${slackTimestamp}:${rawBody}`;
+  const mySig = `v0=` + crypto
+    .createHmac("sha256", process.env.SLACK_SIGNING_SECRET)
+    .update(sigBase)
+    .digest("hex");
+
+  return crypto.timingSafeEqual(Buffer.from(mySig), Buffer.from(slackSignature));
+}
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -23,14 +46,27 @@ export default async function handler(req, res) {
   }
 
   const rawBody = (await buffer(req)).toString();
+
+  // 🔐 Overenie Slack podpisu
+  if (!verifySlackSignature(req, rawBody)) {
+    console.warn("⚠️ Invalid Slack signature");
+    return res.status(401).send("Unauthorized");
+  }
+
   const payload = JSON.parse(rawBody);
 
+  // Slack URL Verification ping
   if (payload.type === "url_verification") {
     return res.status(200).send(payload.challenge);
   }
 
   const event = payload.event;
-  if (!event || event.subtype === "bot_message" || event.bot_id || event.user === process.env.BOT_USER_ID) {
+  if (
+    !event ||
+    event.subtype === "bot_message" ||
+    event.bot_id ||
+    event.user === process.env.BOT_USER_ID
+  ) {
     return res.status(200).send("Ignore bot/self messages");
   }
 
@@ -49,14 +85,15 @@ export default async function handler(req, res) {
   let slackDisplayName = user;
   try {
     const userInfo = await slackClient.users.info({ user });
-    slackDisplayName = userInfo.user?.profile?.real_name || userInfo.user?.name || user;
+    slackDisplayName =
+      userInfo.user?.profile?.real_name || userInfo.user?.name || user;
   } catch (err) {
     console.warn("⚠️ Failed to fetch Slack display name, using fallback ID");
   }
 
   // 🖼️ Handle image in thread
   if (thread_ts && files?.length) {
-    const validFile = files.find(f => /\.(png|jpe?g)$/i.test(f.name));
+    const validFile = files.find((f) => /\.(png|jpe?g)$/i.test(f.name));
     if (validFile) {
       const taskRecord = await redis.get(thread_ts);
       if (!taskRecord) {
@@ -79,7 +116,10 @@ export default async function handler(req, res) {
           timestamp: thread_ts,
         });
       } catch (err) {
-        if (err.code === "slack_webapi_platform_error" && err.data?.error === "already_reacted") {
+        if (
+          err.code === "slack_webapi_platform_error" &&
+          err.data?.error === "already_reacted"
+        ) {
           console.log("✅ Already reacted, skipping...");
         } else {
           console.error("❌ Failed to add checkmark reaction:", err);
@@ -109,7 +149,10 @@ export default async function handler(req, res) {
       timestamp: ts,
     });
   } catch (err) {
-    if (err.code === "slack_webapi_platform_error" && err.data?.error === "already_reacted") {
+    if (
+      err.code === "slack_webapi_platform_error" &&
+      err.data?.error === "already_reacted"
+    ) {
       console.log("🤖 Already reacted, skipping...");
     } else {
       console.error("❌ Failed to add robot reaction:", err);
