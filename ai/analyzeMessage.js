@@ -4,7 +4,7 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export async function analyzeMessage(text) {
   const prompt = `
-You're an assistant determining if a Slack message is a design task.
+You're an assistant determining if a Slack message is a design sport related banner task.
 
 Message: "${text}"
 

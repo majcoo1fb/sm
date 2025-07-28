@@ -60,7 +60,6 @@ export default async function handler(req, res) {
   const rawBody = (await buffer(req)).toString();
   console.log("🔵 Raw body received");
 
-  // Verify Slack signature
   if (!verifySlackSignature(req, rawBody)) {
     console.warn("❌ Invalid Slack signature");
     return res.status(401).send("Unauthorized");
@@ -100,6 +99,13 @@ export default async function handler(req, res) {
   }
 
   const { text, ts, user, thread_ts, channel, files } = event;
+  console.log("📡 Received from channel:", channel);
+
+  // 🚫 Check allowed channel
+  if (channel !== process.env.CHANNEL_ID) {
+    console.log("🟡 Skipping message from unauthorized channel");
+    return res.status(200).send("Channel not monitored");
+  }
 
   // Anti-duplicate
   const eventKey = `event:${ts}`;
@@ -185,7 +191,6 @@ export default async function handler(req, res) {
     return res.status(200).send("Not a task");
   }
 
-  // Add 🤖 reaction
   try {
     await slackClient.reactions.add({
       name: "robot_face",
@@ -224,7 +229,7 @@ export default async function handler(req, res) {
     thread_ts: ts,
     text: `✅ Task created!
 🎨 *Design Summary:* _${result.summary}_
-<@sbdesigners>, please take a look.
+@sbdesigners , please take a look.
 Drop your PNG/JPG here when ready.`,
   });
 
