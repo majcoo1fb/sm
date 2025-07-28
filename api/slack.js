@@ -124,7 +124,7 @@ export default async function handler(req, res) {
   await slackClient.chat.postMessage({
     channel,
     thread_ts: ts,
-    text: `✅ Task created!\n🎨 *Design Summary:* _${result.summary}_\nDrop your PNG/JPG here when ready.`,
+    text: `✅ Task created! @sbdesigners please work on them ASAP\n🎨 *Design Summary:* _${result.summary}_\nDrop your PNG/JPG here when ready.`,
   });
 
   res.status(200).send("Task created");
