@@ -4,18 +4,15 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export async function analyzeMessage(text) {
   const prompt = `
-You're an assistant that reads Slack messages and decides whether the message is a **new task for a sports design team**, especially related to creating banners for betting promotions.
+You're an assistant that analyzes Slack messages and determines whether the message contains a **new design task request** for the sports design team (e.g. a new banner or creative asset request).
 
-Instructions:
-- Understand full context of the message, including betting terminology and common phrases used in requests.
-- Detect **requests for banners or graphics**, even if the message is long or has multiple betting picks.
-- Phrases like "GH: [tip]", "BOB: [match]", "prepare banners", "promo odds", "today’s picks", or "anytime goalscorer" likely mean a task.
-- If the message includes odds (e.g. from 2.12 > 2.50), match or player names, and words like "prepare", "today’s banners", "promo", then it's a task.
-- If the message is just analysis, opinions, or general sports talk, then it's not a task.
-
-Your goal is to:
-- Return \`isTask: true\` if the message is requesting any design work (banners, graphics).
-- Provide a short summary of what the task is about. If it's not a task, explain what the message is.
+Strict rules:
+- Only return "isTask": true if the message is a **new, original task**, such as a request to create a new banner, graphic, promo asset, etc.
+- Do NOT mark as a task if the message:
+  - Follows up on existing tasks (e.g. status updates, asking for timelines, reviews).
+  - Mentions edits, revisions, or feedback for already started banners.
+  - Asks for checking progress, correcting names, or updating elements.
+  - References previous work or uses phrases like “needs updating”, “half-completed”, “remove name”, “add images”, or “returned”.
 
 ---
 
@@ -27,9 +24,9 @@ Message:
 Reply in valid JSON:
 {
   "isTask": true or false,
-  "summary": "If true, give a clear task summary for the designer (e.g. 'Two banners for today: FC Copenhagen win + BTTS No, and Braithwaite anytime scorer for Gremio'). If false, describe the message as general discussion."
+  "summary": "If true, summarize the new design task. If false, describe that it's a follow-up or status message, not a new task."
 }
-  `;
+`;
 
   const res = await openai.chat.completions.create({
     model: "gpt-4",
