@@ -3,25 +3,33 @@ import OpenAI from "openai";
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export async function analyzeMessage(text) {
-const prompt = `
-You're an assistant that analyzes Slack messages to determine if they contain a **design sport-related task**, such as a request for a new banner or asset based on a sports bet, match, player, or betting odds change.
+  const prompt = `
+You're an assistant that reads Slack messages and decides whether the message is a **new task for a sports design team**, especially related to creating banners for betting promotions.
 
-Your job is to:
-1. Understand all sports betting terminology and abbreviations like BTTS (Both Teams To Score), 1X2, Over/Under, Anytime Goalscorer, etc.
-2. Detect if the message is **implicitly or explicitly** a request to create a sport-related asset (e.g., "GH: Franculino...").
-3. Infer intent even if the message doesn't say "make banner", but includes odds, match details, player names, bet types, or changes in values (e.g., from 2.07 > 2.40).
-4. Be sensitive to abbreviations and league/team names like BOB, CA Banfield, FC Midtjylland, etc.
-5. Only respond if the message seems like a banner or creative task, not just a general discussion or betting chat.
+Instructions:
+- Understand full context of the message, including betting terminology and common phrases used in requests.
+- Detect **requests for banners or graphics**, even if the message is long or has multiple betting picks.
+- Phrases like "GH: [tip]", "BOB: [match]", "prepare banners", "promo odds", "today’s picks", or "anytime goalscorer" likely mean a task.
+- If the message includes odds (e.g. from 2.12 > 2.50), match or player names, and words like "prepare", "today’s banners", "promo", then it's a task.
+- If the message is just analysis, opinions, or general sports talk, then it's not a task.
+
+Your goal is to:
+- Return \`isTask: true\` if the message is requesting any design work (banners, graphics).
+- Provide a short summary of what the task is about. If it's not a task, explain what the message is.
+
+---
 
 Message:
-"${text}"
+"""${text}"""
+
+---
 
 Reply in valid JSON:
 {
   "isTask": true or false,
-  "summary": "Short description of what the task seems to be, such as 'Banner for Franculino anytime goalscorer with new odds vs Soenderjyske'"
+  "summary": "If true, give a clear task summary for the designer (e.g. 'Two banners for today: FC Copenhagen win + BTTS No, and Braithwaite anytime scorer for Gremio'). If false, describe the message as general discussion."
 }
-`;
+  `;
 
   const res = await openai.chat.completions.create({
     model: "gpt-4",
@@ -30,8 +38,10 @@ Reply in valid JSON:
   });
 
   try {
-    return JSON.parse(res.choices[0].message.content);
-  } catch {
+    const content = res.choices[0].message.content.trim();
+    return JSON.parse(content);
+  } catch (err) {
+    console.error("❌ Failed to parse OpenAI response:", res.choices[0].message.content);
     return { isTask: false };
   }
 }
