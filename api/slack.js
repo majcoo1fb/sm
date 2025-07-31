@@ -39,12 +39,17 @@ function verifySlackSignature(req, rawBody) {
   }
 
   const sigBase = `v0:${slackTimestamp}:${rawBody}`;
-  const mySig = `v0=` + crypto
-    .createHmac("sha256", process.env.SLACK_SIGNING_SECRET)
-    .update(sigBase)
-    .digest("hex");
+  const mySig =
+    "v0=" +
+    crypto
+      .createHmac("sha256", process.env.SLACK_SIGNING_SECRET)
+      .update(sigBase)
+      .digest("hex");
 
-  const result = crypto.timingSafeEqual(Buffer.from(mySig), Buffer.from(slackSignature));
+  const result = crypto.timingSafeEqual(
+    Buffer.from(mySig),
+    Buffer.from(slackSignature)
+  );
   if (!result) console.warn("❌ Signature mismatch");
   return result;
 }
@@ -149,11 +154,22 @@ export default async function handler(req, res) {
       return res.status(200).send("No task mapping found");
     }
 
-    const { taskId, createdAt } = taskRecord;
+    const { taskId, createdAt, completed } = taskRecord;
     console.log("✅ Matching task found:", taskId);
+
+    if (completed) {
+      console.log("🟡 Task already completed, skipping re-assign.");
+      return res.status(200).send("Already completed");
+    }
 
     await completeTask(taskId, slackDisplayName, validFile.created, createdAt);
     console.log("✅ Task marked complete");
+
+    await redis.set(thread_ts, {
+      taskId,
+      createdAt,
+      completed: true,
+    });
 
     try {
       await slackClient.reactions.add({
@@ -212,16 +228,24 @@ export default async function handler(req, res) {
   const slackLink = `https://slack.com/app_redirect?channel=${channel}&message_ts=${ts}`;
   const task = await createTask(result.summary, slackDisplayName, slackLink);
 
-  if (!task || !task.id) {
-    console.error("❌ Task creation failed:", task);
-    return res.status(500).send("Failed to create Monday task");
-  }
+ if (!task || !task.id) {
+  console.error("❌ Task creation failed:", task);
+
+  await slackClient.chat.postMessage({
+    channel,
+    thread_ts: ts,
+    text: `⚠️ Something went wrong while creating the task. Please try again later or contact <@your_user_id>.`,
+  });
+
+  return res.status(500).send("Failed to create Monday task");
+}
 
   console.log("✅ Monday task created:", task.id);
 
   await redis.set(ts, {
     taskId: task.id,
     createdAt: new Date().toISOString(),
+    completed: false,
   });
 
   await slackClient.chat.postMessage({
